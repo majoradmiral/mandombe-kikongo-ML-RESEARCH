@@ -15,9 +15,10 @@ import { describe, it, expect } from "vitest";
 import { lessons } from "@/data/lessons";
 import corpusV2 from "../../supabase/functions/_shared/mbuta-corpus-v2.json";
 import { runDictionaryQA, normalizeLari } from "../../scripts/qa-dictionary-core";
+import { KNOWN_DUPLICATES } from "../../scripts/qa-dictionary-baseline";
 
 describe("Dictionary QA", () => {
-  const report = runDictionaryQA(lessons as any, corpusV2 as any);
+  const report = runDictionaryQA(lessons as any, corpusV2 as any, KNOWN_DUPLICATES);
 
   it("normalizes lari keys for duplicate detection", () => {
     expect(normalizeLari("Mbote!")).toBe(normalizeLari("mbote"));
