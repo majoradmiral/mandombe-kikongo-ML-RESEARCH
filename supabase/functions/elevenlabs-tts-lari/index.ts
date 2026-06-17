@@ -15,6 +15,12 @@ const DEFAULT_VOICE_ID = (Deno.env.get("LARI_VOICE_ID") || "").trim() || "Gz9w9R
 
 const PHONETIC_OVERRIDES: Record<string, string> = {
   "mosi": "moshi",
+  // Zaba — premier /a/ long /zaːba/
+  "zaba": "zââba",
+  "Zaba": "Zââba",
+  // Nsoneka (écrire) — s'écrit nsoneka, prononcé /tsoneka/
+  "nsoneka": "tsonéka",
+  "Nsoneka": "Tsonéka",
   "ntinu": "ntînou",
   "djoka": "djôka",
   "zeba": "zéba",
