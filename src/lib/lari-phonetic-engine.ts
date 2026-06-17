@@ -264,6 +264,14 @@ const PHONETIC_OVERRIDES: Record<string, string> = {
   // Shama / Shemi — /ʃ/ comme "chat" en français (PAS /tʃ/ anglais).
   "shama": "chama",        // /ʃama/ — infinitif "aller"
   "shemi": "chémi",        // /ʃɛmi/ — "je vais"
+
+  // Zaba — premier /a/ long : /zaːba/
+  "zaba": "zââba",
+  "Zaba": "Zââba",
+
+  // Nsoneka (= écrire) : s'écrit nsoneka, se prononce /tsoneka/
+  "nsoneka": "tsonéka",
+  "Nsoneka": "Tsonéka",
 }
 
 /**
