@@ -143,7 +143,9 @@ const ELEVENLABS_RULES: PhoneticRule[] = [
 // OVERRIDES PHONÉTIQUES MOT PAR MOT (côté client)
 // ============================================================
 const PHONETIC_OVERRIDES: Record<string, string> = {
-  "mosi": "moshi",
+  "mosi": "mochi",     // /ʃ/ comme « chat » en français
+  "moshi": "mochi",    // graphie alternative — même prononciation /ʃ/
+  "Moshi": "Mochi",
   "nkenke": "ntshntshe",
   "ngiena": "ndjena",
   "ngiele": "ndjele",
