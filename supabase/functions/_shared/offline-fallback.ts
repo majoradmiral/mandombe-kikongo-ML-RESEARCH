@@ -16,6 +16,7 @@ import leconResto from "./mbuta-lecon-restaurant.json" with { type: "json" };
 import leconSePresenter from "./mbuta-lecon-se-presenter.json" with { type: "json" };
 import conjZololo from "./mbuta-conjugaisons-zololo.json" with { type: "json" };
 import conjZololoManisa from "./mbuta-conjugaisons-zololo-manisa.json" with { type: "json" };
+import dictionary from "./dictionary.json" with { type: "json" };
 
 type Phrase = { kikongo: string; fr: string; note?: string };
 type Mot = { kikongo: string; fr: string; note?: string };
