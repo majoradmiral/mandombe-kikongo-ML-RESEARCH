@@ -3,6 +3,19 @@
 // Strategy: corpus-only lookup. NEVER invents new Lari forms.
 
 import corpus from "./mbuta-corpus-v2.json" with { type: "json" };
+import lecon00 from "./mbuta-lecon-00.json" with { type: "json" };
+import lecon03 from "./mbuta-lecon-03.json" with { type: "json" };
+import leconEcole from "./mbuta-lecon-ecole.json" with { type: "json" };
+import leconHotel from "./mbuta-lecon-hotel.json" with { type: "json" };
+import leconNzariMungua from "./mbuta-lecon-ku-nzari-mungua.json" with { type: "json" };
+import leconKuNzo from "./mbuta-lecon-ku-nzo.json" with { type: "json" };
+import leconKuZandu from "./mbuta-lecon-ku-zandu.json" with { type: "json" };
+import leconEmotions from "./mbuta-lecon-nzo-emotions.json" with { type: "json" };
+import leconJournee from "./mbuta-lecon-nzo-journee.json" with { type: "json" };
+import leconResto from "./mbuta-lecon-restaurant.json" with { type: "json" };
+import leconSePresenter from "./mbuta-lecon-se-presenter.json" with { type: "json" };
+import conjZololo from "./mbuta-conjugaisons-zololo.json" with { type: "json" };
+import conjZololoManisa from "./mbuta-conjugaisons-zololo-manisa.json" with { type: "json" };
 
 type Phrase = { kikongo: string; fr: string; note?: string };
 type Mot = { kikongo: string; fr: string; note?: string };
@@ -19,31 +32,38 @@ interface CorpusV2 {
 
 const C = corpus as unknown as CorpusV2;
 
-// ---------- Normalisation ----------
-
-export function norm(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[?!.,;:«»"'()[\]]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+// Lessons share a common shape with mbuta/subtitle pairs in `ouverture`, `cloture`,
+// `echanges[*]` (question + correct/incorrect feedback), and `echanges[*].reponses[*]`.
+interface LessonExchange {
+  mbuta?: string;
+  subtitle?: string;
+  reponse_correcte_mbuta?: string;
+  reponse_correcte_subtitle?: string;
+  reponse_incorrecte_mbuta?: string;
+  reponse_incorrecte_subtitle?: string;
+  reponses?: { mbuta?: string; subtitle?: string }[];
 }
-
-function tokens(s: string): string[] {
-  return norm(s).split(" ").filter(Boolean);
+interface LessonFile {
+  ouverture?: { mbuta?: string; subtitle?: string };
+  cloture?: { mbuta?: string; subtitle?: string };
+  echanges?: LessonExchange[];
 }
-
-// ---------- Dictionnaire bilingue construit depuis le corpus ----------
+interface ConjugaisonFile {
+  paradigmes?: Record<string, { fr?: string; kikongo?: string }[]>;
+}
 
 type Pair = { fr: string; lari: string; note?: string };
 
 const STATIC_PAIRS: Pair[] = (() => {
   const out: Pair[] = [];
-  const push = (kikongo: string, fr: string, note?: string) => {
-    if (kikongo && fr) out.push({ lari: kikongo.trim(), fr: fr.trim(), note });
+  const push = (kikongo?: string, fr?: string, note?: string) => {
+    if (!kikongo || !fr) return;
+    const k = kikongo.trim();
+    const f = fr.trim();
+    if (k && f) out.push({ lari: k, fr: f, note });
   };
+
+  // 1) Corpus v2 (présentation, salutations, leçons, vocab, identité)
   const sections: { phrases?: Phrase[]; mots?: Mot[] }[] = [
     C.presentation, C.salutations, C.gestion_lecon,
     C.corrections_encouragements, C.questions_sur_leleve,
@@ -54,6 +74,44 @@ const STATIC_PAIRS: Pair[] = (() => {
     sec.phrases?.forEach((p) => push(p.kikongo, p.fr, p.note));
     sec.mots?.forEach((m) => push(m.kikongo, m.fr, m.note));
   }
+
+  // 2) Toutes les leçons Mbuta Matondo (échanges, réponses, ouverture, clôture)
+  const lessons: LessonFile[] = [
+    lecon00 as LessonFile,
+    lecon03 as LessonFile,
+    leconEcole as LessonFile,
+    leconHotel as LessonFile,
+    leconNzariMungua as LessonFile,
+    leconKuNzo as LessonFile,
+    leconKuZandu as LessonFile,
+    leconEmotions as LessonFile,
+    leconJournee as LessonFile,
+    leconResto as LessonFile,
+    leconSePresenter as LessonFile,
+  ];
+  for (const L of lessons) {
+    push(L.ouverture?.mbuta, L.ouverture?.subtitle);
+    push(L.cloture?.mbuta, L.cloture?.subtitle);
+    L.echanges?.forEach((e) => {
+      push(e.mbuta, e.subtitle);
+      push(e.reponse_correcte_mbuta, e.reponse_correcte_subtitle);
+      push(e.reponse_incorrecte_mbuta, e.reponse_incorrecte_subtitle);
+      e.reponses?.forEach((r) => push(r.mbuta, r.subtitle));
+    });
+  }
+
+  // 3) Tables de conjugaison (toutes formes attestées)
+  const conjugs: ConjugaisonFile[] = [
+    conjZololo as ConjugaisonFile,
+    conjZololoManisa as ConjugaisonFile,
+  ];
+  for (const cj of conjugs) {
+    if (!cj.paradigmes) continue;
+    for (const forms of Object.values(cj.paradigmes)) {
+      forms.forEach((p) => push(p.kikongo, p.fr));
+    }
+  }
+
   return out;
 })();
 
