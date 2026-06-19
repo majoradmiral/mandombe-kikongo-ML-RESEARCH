@@ -4988,7 +4988,35 @@ serve(async (req) => {
     const dirLabel = directionLabels[direction] || direction;
     const notesInLang = notesLangLabels[notesLang] || "français";
 
-    const offlineCorrections: OfflineCorrection[] = Array.from(relevantSet.values()).map(
+    // Pool offline : corrections pertinentes + toutes notes expert + corrections
+    // de la direction inverse (swappées) — pour que la mémoire fonctionne dans les
+    // deux sens même sans crédits IA.
+    const offlinePool = new Map<string, CorrRow>();
+    for (const r of relevantSet.values()) {
+      offlinePool.set(r.source_text + "|" + r.corrected_translation, r);
+    }
+    for (const r of (allNoted || [])) {
+      offlinePool.set(r.source_text + "|" + r.corrected_translation, r);
+    }
+
+    const { data: reverseCorr } = await supabase
+      .from("translation_corrections")
+      .select("source_text, corrected_translation, notes, created_at")
+      .eq("source_lang", targetLang)
+      .eq("target_lang", sourceLang)
+      .order("created_at", { ascending: false })
+      .limit(300);
+    (reverseCorr || []).forEach((r: CorrRow) => {
+      const swapped: CorrRow = {
+        source_text: r.corrected_translation,
+        corrected_translation: r.source_text,
+        notes: r.notes,
+        created_at: r.created_at,
+      };
+      offlinePool.set("rev|" + swapped.source_text + "|" + swapped.corrected_translation, swapped);
+    });
+
+    const offlineCorrections: OfflineCorrection[] = Array.from(offlinePool.values()).map(
       (r) => ({
         source_text: r.source_text,
         corrected_translation: r.corrected_translation,
