@@ -13,7 +13,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
 const BASE_SYSTEM_PROMPT = `Tu parles UNIQUEMENT en Kikongo Lari. Tu ne dis jamais un seul mot en français. Si tu ne sais pas quoi dire, répète la phrase de la leçon en cours. JAMAIS de français.
 
