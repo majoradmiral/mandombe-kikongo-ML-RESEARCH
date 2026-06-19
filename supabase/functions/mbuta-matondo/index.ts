@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { LESSONS_CORPUS, filterLessons, getExercisesByLesson } from "../_shared/lessons-corpus.ts";
 import { MBUTA_CORPUS_V2 } from "../_shared/mbuta-corpus-v2.ts";
 import { MBUTA_LECONS } from "../_shared/mbuta-lecons.ts";
+import { mbutaOfflineReply } from "../_shared/offline-fallback.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -820,21 +821,49 @@ serve(async (req) => {
       ...messages,
     ];
 
+    // Renvoie une réponse offline au format SSE attendu par le client
+    const lastUserMsg = [...messages].reverse().find((m: any) => m?.role === "user");
+    const lastUserText = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : Array.isArray(lastUserMsg?.content)
+        ? lastUserMsg.content.map((p: any) => p?.text || "").join(" ")
+        : "";
+    const sendOfflineSSE = () => {
+      const finalText = sanitizeOutput(mbutaOfflineReply(lastUserText));
+      const stream = new ReadableStream({
+        start(controller) {
+          const enc = new TextEncoder();
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: finalText } }] })}\n\n`));
+          controller.enqueue(enc.encode(`data: [DONE]\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    };
+
+    if (!LOVABLE_API_KEY) {
+      console.warn("LOVABLE_API_KEY missing — serving Mbuta offline reply");
+      return sendOfflineSSE();
+    }
+
     // Tool-calling loop (non-streamé), max 5 itérations
     for (let i = 0; i < 5; i++) {
-      const resp = await callGateway(conversation, false);
+      let resp: Response;
+      try {
+        resp = await callGateway(conversation, false);
+      } catch (netErr) {
+        console.error("Gateway network error — Mbuta offline:", netErr);
+        return sendOfflineSSE();
+      }
 
       if (!resp.ok) {
-        if (resp.status === 429)
-          return new Response(JSON.stringify({ error: "Trop de requêtes." }), {
-            status: 429,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        if (resp.status === 402)
-          return new Response(JSON.stringify({ error: "Crédits AI épuisés." }), {
-            status: 402,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        // 402 / 429 / 5xx → mode hors ligne plutôt que de bloquer la conversation.
+        if (resp.status === 402 || resp.status === 429 || resp.status >= 500) {
+          console.warn(`Gateway ${resp.status} — Mbuta offline`);
+          return sendOfflineSSE();
+        }
         const t = await resp.text();
         console.error("Gateway error:", resp.status, t);
         return new Response(JSON.stringify({ error: "Erreur AI" }), {

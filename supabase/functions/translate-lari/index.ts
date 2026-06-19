@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { translateOffline, type OfflineCorrection } from "../_shared/offline-fallback.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4987,41 +4988,54 @@ serve(async (req) => {
     const dirLabel = directionLabels[direction] || direction;
     const notesInLang = notesLangLabels[notesLang] || "français";
 
+    const offlineCorrections: OfflineCorrection[] = Array.from(relevantSet.values()).map(
+      (r) => ({
+        source_text: r.source_text,
+        corrected_translation: r.corrected_translation,
+        notes: r.notes ?? null,
+      }),
+    );
+    const offlineReply = () =>
+      new Response(JSON.stringify(translateOffline(text, direction, offlineCorrections)), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      console.warn("LOVABLE_API_KEY missing — serving offline translation");
+      return offlineReply();
     }
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT + fewShotBlock },
-          {
-            role: "user",
-            content: `Traduis ${dirLabel} le texte suivant :\n\n"${text}"\n\nRédige le champ "notes" en ${notesInLang}.\n\nRéponds en JSON uniquement.`,
-          },
-        ],
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT + fewShotBlock },
+            {
+              role: "user",
+              content: `Traduis ${dirLabel} le texte suivant :\n\n"${text}"\n\nRédige le champ "notes" en ${notesInLang}.\n\nRéponds en JSON uniquement.`,
+            },
+          ],
+        }),
+      });
+    } catch (netErr) {
+      console.error("AI gateway network error — falling back offline:", netErr);
+      return offlineReply();
+    }
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Trop de requêtes, réessayez dans un moment." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Crédits AI épuisés." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      // 402 (crédits épuisés), 429 (rate limit) et 5xx → bascule en mode hors ligne
+      // au lieu de renvoyer une erreur. L'utilisateur garde un service fonctionnel.
+      if (response.status === 402 || response.status === 429 || response.status >= 500) {
+        console.warn(`AI gateway ${response.status} — serving offline translation`);
+        return offlineReply();
       }
       const t = await response.text();
       console.error("AI gateway error:", response.status, t);
