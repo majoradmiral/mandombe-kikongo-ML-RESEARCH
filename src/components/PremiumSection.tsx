@@ -93,14 +93,35 @@ const PremiumSection = () => {
               ))}
             </div>
 
-            <button
-              onClick={handleClick}
-              className="bg-gold hover:bg-gold/90 text-earth-deep px-10 py-4 rounded-lg text-lg font-bold transition-colors"
-            >
-              Go Premium — $9.99/month
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center items-stretch">
+              <button
+                onClick={handleClick}
+                className="bg-gold hover:bg-gold/90 text-earth-deep px-8 py-4 rounded-lg text-base font-bold transition-colors inline-flex items-center justify-center gap-2"
+              >
+                <Crown className="w-5 h-5" /> Go Premium — $9.99/month
+              </button>
+              <button
+                onClick={async () => {
+                  if (!user) {
+                    navigate("/auth?next=/translator");
+                    return;
+                  }
+                  try {
+                    const { data, error } = await supabase.functions.invoke("create-lifetime-checkout");
+                    if (error) throw error;
+                    if (data?.url) window.open(data.url, "_blank");
+                  } catch (err) {
+                    console.error(err);
+                    toast.error("Erreur lors de la création du paiement");
+                  }
+                }}
+                className="border border-gold/50 text-cream hover:bg-gold/10 px-8 py-4 rounded-lg text-base font-bold transition-colors inline-flex items-center justify-center gap-2"
+              >
+                <InfinityIcon className="w-5 h-5 text-gold" /> Lifetime Translator + Dictionary — $19.99
+              </button>
+            </div>
             <p className="text-cream/50 text-sm mt-4">
-              Cancel anytime. Full access to all content.
+              Premium: cancel anytime, full access. Lifetime: one-time payment, forever access to translator & dictionary.
             </p>
           </div>
         </div>
