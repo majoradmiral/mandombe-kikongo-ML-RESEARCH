@@ -353,17 +353,50 @@ const Dictionary = () => {
             )}
           </div>
 
+          {/* Quota / paywall banner */}
+          {quotaExceeded && !hasUnlimited ? (
+            <div className="max-w-2xl mx-auto mb-8">
+              <TranslatorPaywall reason="quota" variant="inline" />
+            </div>
+          ) : !hasUnlimited && user && translatorUsesRemaining !== null ? (
+            <div className="max-w-xl mx-auto mb-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <span>
+                {translatorUsesRemaining} / {translatorUsesLimit} recherches gratuites restantes (partagées avec le traducteur)
+              </span>
+              <button
+                onClick={async () => {
+                  try {
+                    const { data, error } = await supabase.functions.invoke("create-lifetime-checkout");
+                    if (error) throw error;
+                    if (data?.url) window.open(data.url, "_blank");
+                  } catch {
+                    toast.error("Erreur");
+                  }
+                }}
+                className="text-gold hover:underline font-medium inline-flex items-center gap-1"
+              >
+                <InfinityIcon className="w-3 h-3" /> 19,99 $
+              </button>
+            </div>
+          ) : null}
+
           {/* Search */}
           <div className="max-w-xl mx-auto mb-8 relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => {
+                if (!user) {
+                  navigate("/auth?next=/dictionary");
+                  return;
+                }
+                if (quotaExceeded && !hasUnlimited) return;
                 setSearch(e.target.value);
                 setActiveLetter(null);
               }}
-              placeholder={t("dict.searchPlaceholder")}
-              className="pl-12 h-14 text-lg rounded-xl border-border bg-card shadow-sm focus-visible:ring-primary"
+              placeholder={!user ? "Connectez-vous pour rechercher…" : (quotaExceeded && !hasUnlimited) ? "Recherches épuisées — débloquez à vie" : t("dict.searchPlaceholder")}
+              disabled={quotaExceeded && !hasUnlimited}
+              className="pl-12 h-14 text-lg rounded-xl border-border bg-card shadow-sm focus-visible:ring-primary disabled:opacity-60"
             />
           </div>
 
