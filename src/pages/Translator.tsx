@@ -46,16 +46,47 @@ const langLabels: Record<SourceLang, string> = {
 
 const Translator = () => {
   const { t } = useLanguage();
-  const { isAdmin, session, checkSubscription } = useAuth();
+  const { user, isAdmin, isPremium, hasLifetimeTranslator, translatorUsesRemaining, translatorUsesLimit, session, checkSubscription } = useAuth();
   const [sourceLang, setSourceLang] = useState<SourceLang>("fr");
   const [targetLang, setTargetLang] = useState<SourceLang>("lari");
   const [inputText, setInputText] = useState("");
   const [result, setResult] = useState<TranslationResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [copied, setCopied] = useState<"source" | "target" | "mandombe" | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const mandombeRef = useRef<HTMLParagraphElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const hasUnlimited = isAdmin || isPremium || hasLifetimeTranslator;
+
+  // Handle Stripe return: verify lifetime purchase
+  useEffect(() => {
+    const status = searchParams.get("lifetime");
+    const sessionId = searchParams.get("session_id");
+    if (status === "success" && sessionId && session?.access_token) {
+      supabase.functions
+        .invoke("verify-lifetime-purchase", { body: { session_id: sessionId } })
+        .then(({ data, error }) => {
+          if (error) {
+            toast.error("Vérification du paiement échouée");
+          } else if (data?.verified) {
+            toast.success("🎉 Accès à vie activé !");
+            void checkSubscription();
+          }
+          searchParams.delete("lifetime");
+          searchParams.delete("session_id");
+          setSearchParams(searchParams, { replace: true });
+        });
+    } else if (status === "cancel") {
+      toast.info("Paiement annulé");
+      searchParams.delete("lifetime");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, session, checkSubscription, setSearchParams]);
+
 
   const copyMandombeAsImage = useCallback(async () => {
     if (!mandombeRef.current) return;
