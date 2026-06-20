@@ -159,6 +159,15 @@ const Dictionary = () => {
       const staticKeys = new Set(staticEntries.map((e) => e.lari.toLowerCase().trim()));
       const entries: DictionaryEntry[] = [];
 
+      const isShortLemma = (s: string) => {
+        if (!s) return false;
+        const t = s.trim();
+        if (t.length > 40) return false;
+        if (t.split(/\s+/).length > 4) return false;
+        if (/[.?!,;:\n]/.test(t)) return false;
+        return true;
+      };
+
       for (const c of data) {
         let lari: string;
         let french: string;
