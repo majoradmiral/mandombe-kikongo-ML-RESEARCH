@@ -204,6 +204,7 @@ const Dictionary = () => {
 
         const key = lari.toLowerCase().trim();
         if (!key || staticKeys.has(key)) continue;
+        if (!isShortLemma(lari) || !isShortLemma(french || english)) continue;
         staticKeys.add(key); // avoid duplicates within corrections
 
         entries.push({
