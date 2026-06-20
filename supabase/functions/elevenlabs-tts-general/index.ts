@@ -1,4 +1,5 @@
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { requireAuth, unauthorizedResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,6 +9,7 @@ const corsHeaders = {
 const FRENCH_VOICE_ID = "R89ZQJowZAEgiPNyC3dQ";
 const MBILIA_VOICE_ID = "9d5gN66gJ67fuz9yl7IQ";
 const KOREAN_VOICE_ID = "KlstlYt9VVf3zgie2Oht";
+const MAX_TTS_CHARS = 1000;
 
 const langMapping: Record<string, string> = {
   fr: "fr", en: "en", pt: "pt", es: "es", it: "it", el: "el", ko: "ko",
@@ -18,14 +20,21 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const auth = await requireAuth(req);
+  if (!auth.ok) return unauthorizedResponse(auth, corsHeaders);
+
   try {
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
     if (!ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not configured");
 
     const { text, lang } = await req.json();
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return new Response(JSON.stringify({ error: "text is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (text.length > MAX_TTS_CHARS) {
+      return new Response(JSON.stringify({ error: `text exceeds ${MAX_TTS_CHARS} characters` }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Préserver "?" et "!" pour la prosodie ; ajouter "?" si question détectée sans ponctuation finale.
