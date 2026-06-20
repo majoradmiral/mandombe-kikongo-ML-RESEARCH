@@ -1,64 +1,79 @@
-# Plan — Réconciliation `lessons.ts` ↔ `mbuta-corpus-v2.json`
+## Goal
 
-## Contexte
-La QA dictionnaire (`scripts/qa-dictionary.ts`) signale **456 warnings de cohérence** : pour une même clé Lari normalisée, la traduction française (ou autre) diverge entre `src/data/lessons.ts` (UI) et `supabase/functions/_shared/mbuta-corpus-v2.json` (corpus IA / traducteur). Objectif : passer à **0 warning** sans régression visible côté apprenant.
+Introduce a one-time **$19.99 lifetime unlock** that gives signed-in users unlimited access to the **Translator** and **Dictionary**. Non-buyers get **11 free uses total** (lifetime, per account). The existing $9.99/month Premium subscription stays unchanged and continues to unlock everything (lessons, stories, Kilolaka, Mbuta Matondo, etc.).
 
-## Principe directeur
-**Source de vérité unique = `mbuta-corpus-v2.json`** (validé par Mbuta Matondo, utilisé par le traducteur, l'IA prof et l'edge function). `lessons.ts` doit s'aligner dessus. Les divergences réelles (sens contextuel différent) sont conservées via une allowlist explicite.
+## Why $19.99
 
-## Phases
+- ~2 months of Premium → feels fair for *forever* access to a narrow toolset.
+- High enough to not cannibalize the subscription (which still wins on breadth).
+- Sweet spot for niche language/diaspora tools — low enough for impulse purchase after hitting the 11-use wall, high enough to be meaningful revenue per user.
+- Admins and active Premium subscribers automatically have access (no double-charging).
 
-### Phase 1 — Instrumenter (1 itération)
-1. Étendre `scripts/qa-dictionary-core.ts` pour **exporter le détail des warnings** : `{ key, lariOriginal, lessonFr, corpusFr, lessonId, section }`.
-2. Ajouter `scripts/qa-dictionary-report.ts` : génère `qa-coherence-report.csv` (trié par lesson, puis par clé) — lisible dans Numbers/Excel.
-3. Catégoriser automatiquement chaque divergence :
-   - **A. Typo / casse / ponctuation** (Levenshtein ≤ 2, ou diff uniquement `.`/`?`/maj.) → auto-fix safe.
-   - **B. Reformulation synonyme** (mêmes mots-clés, ordre différent) → auto-fix vers corpus.
-   - **C. Sens divergent** (mots-clés disjoints) → revue humaine.
-   - **D. Traduction manquante d'un côté** → copier depuis l'autre.
+## User-facing behavior
 
-### Phase 2 — Auto-fix sûr (catégories A + D)
-1. `scripts/qa-dictionary-autofix.ts` : applique uniquement A et D, en écrivant `lessons.ts` via AST (`ts-morph`) pour ne pas casser le formatage.
-2. Sortie : un patch git diff inspectable + le rapport mis à jour.
-3. Cible attendue : **~250 warnings résolus** (estimation : la majorité = ponctuation finale + casse).
+- **Translator page & Dictionary page**: each call increments a counter on the user's account. A small "X / 11 free uses remaining" indicator appears below the input.
+- **At 0 remaining**: input is disabled, replaced by a paywall card:
+  > "You've used your 11 free translations. Unlock the Translator + Dictionary forever for $19.99 — or get everything with Premium ($9.99/mo)."
+  Two buttons: **Buy lifetime access — $19.99** and **Go Premium — $9.99/mo**.
+- **Not signed in**: redirected to /auth before the first use is counted (prevents anonymous abuse / quota reset by clearing cookies).
+- **After purchase**: paywall disappears, counter hidden, unlimited use.
+- **Premium subscribers / admins**: never see the counter or paywall.
 
-### Phase 3 — Reformulations (catégorie B)
-1. Script semi-automatique : propose la version corpus, demande validation interactive (`bun scripts/qa-dictionary-review.ts`).
-2. Validation par lots de 20 entrées max pour rester maintenable.
-3. Cible : **~150 warnings résolus**.
+## Technical design
 
-### Phase 4 — Divergences réelles (catégorie C)
-1. Pour chaque cas : décider entre
-   - aligner `lessons.ts` sur corpus,
-   - corriger le corpus si `lessons.ts` est plus juste (rare),
-   - ou **acter la divergence légitime** (ex. un même mot a deux sens selon la leçon) dans `scripts/qa-coherence-allowlist.ts` avec justification.
-2. Cible : **~50 warnings résolus + ~6 allowlistés**.
+### Database (one migration)
 
-### Phase 5 — Verrouillage CI
-1. Une fois à 0 warning : passer la coherence check **du niveau warning au niveau error** dans `runDictionaryQA`.
-2. Ajouter au test Vitest existant : `expect(report.warnings).toHaveLength(0)`.
-3. Documenter le flux dans `scripts/README.md` : « toute nouvelle entrée doit être ajoutée d'abord au corpus, puis répliquée dans `lessons.ts` ».
+```text
+table public.lifetime_unlocks
+  user_id uuid PK references auth.users on delete cascade
+  product text not null         -- 'translator_dictionary'
+  stripe_session_id text
+  amount_cents int
+  purchased_at timestamptz default now()
 
-## Outils livrés
-- `scripts/qa-dictionary-report.ts` (CSV + classification)
-- `scripts/qa-dictionary-autofix.ts` (A + D)
-- `scripts/qa-dictionary-review.ts` (B, interactif)
-- `scripts/qa-coherence-allowlist.ts` (C, justifié)
-- Test Vitest renforcé en fin de Phase 5
+table public.feature_usage
+  user_id uuid
+  feature text                  -- 'translator' | 'dictionary'
+  count int default 0
+  updated_at timestamptz
+  PK (user_id, feature)
+```
 
-## Estimation
-| Phase | Warnings restants | Effort |
-|---|---|---|
-| Départ | 456 | — |
-| Après P2 | ~200 | 1 itération |
-| Après P3 | ~50 | 2–3 itérations |
-| Après P4 | 0 | 1–2 itérations |
-| P5 | 0 (verrouillé) | 1 itération |
+- GRANTs: `authenticated` SELECT own rows; `service_role` ALL. Writes happen only via edge functions (service role).
+- RLS: users can read their own rows; no client-side INSERT/UPDATE.
+- New SQL helper `public.has_lifetime_access(_user_id uuid, _product text) returns boolean` (SECURITY DEFINER).
 
-## Hors périmètre
-- Pas de modification du corpus Mandombe / phonétique.
-- Pas de changement de schéma `lessons.ts`.
-- Pas de migration DB (les `translation_corrections` Supabase ne sont pas concernées).
+### Edge functions
 
-## Prochaine étape proposée
-Démarrer **Phase 1** : étendre le QA pour produire le CSV catégorisé. Tu valides et je code.
+- **`create-lifetime-checkout`** — new. Creates a Stripe Checkout session in `mode: "payment"` for a new $19.99 one-time price (created via the Stripe tool). Success URL refreshes entitlements.
+- **`verify-lifetime-purchase`** — new. Called on success-URL return; reads the Checkout session, on `payment_status === "paid"` upserts into `lifetime_unlocks`.
+- **`check-subscription`** — extended to also return `lifetimeTranslator: boolean` so the frontend can gate in one round-trip.
+- **`translate-lari`**, **`translate-batch`**, and the dictionary lookup path — wrapped with a quota check helper:
+  1. If admin / premium / lifetime → allow, no increment.
+  2. Else read `feature_usage.count`; if ≥ 11 → return `403 { error: "quota_exceeded" }`.
+  3. Else atomically increment and proceed.
+  - Counter is incremented **server-side only**, so it can't be tampered with from the browser.
+
+### Frontend
+
+- **`AuthContext`** — add `hasLifetimeTranslator: boolean` and `translatorUsesRemaining: number | null`, populated by `check-subscription`.
+- **New component `TranslatorQuotaGate`** — wraps the translator input area. Shows remaining count, swaps to paywall card at 0, handles the two CTAs (lifetime checkout vs. monthly Premium).
+- **`Translator.tsx`** and **`Dictionary.tsx`** — wrap the interactive area with `TranslatorQuotaGate`. The 403 from edge functions also triggers the paywall (defense in depth).
+- **`PremiumSection.tsx`** — add a second card next to the monthly plan: "Lifetime Translator + Dictionary — $19.99 one-time".
+
+### Stripe
+
+- Create one new product **"Lifetime Translator + Dictionary"** with a one-time $19.99 USD price via `stripe--create_stripe_product_and_price`. Hard-code the resulting `price_…` ID in `create-lifetime-checkout`.
+- Existing $9.99/mo subscription product is untouched.
+
+## Out of scope (explicit)
+
+- No webhook handler — verification happens on success-URL return, matching the existing `check-subscription` pattern.
+- Mbuta Matondo, lessons, stories, Kilolaka remain Premium-only.
+- No refund flow / no "transfer lifetime to another account" flow.
+- Existing 11 free uses are granted to all current users (no retroactive deduction based on past usage).
+
+## Risk notes
+
+- Quota is per-account, so users can create multiple emails to reset. Acceptable for v1; can add device fingerprinting later if abuse appears.
+- If the user is also a Premium subscriber and later cancels, lifetime entitlement (if purchased) persists; if not purchased, they fall back to the 11-use quota (already exhausted counter stays exhausted).
