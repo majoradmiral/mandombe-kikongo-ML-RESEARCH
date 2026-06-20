@@ -56,6 +56,27 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_usage: {
+        Row: {
+          count: number
+          feature: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          count?: number
+          feature: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          feature?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       flashcard_reviews: {
         Row: {
           created_at: string
@@ -138,6 +159,30 @@ export type Database = {
           front_portuguese?: string
           id?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lifetime_unlocks: {
+        Row: {
+          amount_cents: number | null
+          product: string
+          purchased_at: string
+          stripe_session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_cents?: number | null
+          product: string
+          purchased_at?: string
+          stripe_session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number | null
+          product?: string
+          purchased_at?: string
+          stripe_session_id?: string | null
           user_id?: string
         }
         Relationships: []
@@ -316,6 +361,10 @@ export type Database = {
     }
     Functions: {
       compute_league: { Args: { _elo: number }; Returns: string }
+      has_lifetime_access: {
+        Args: { _product: string; _user_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
