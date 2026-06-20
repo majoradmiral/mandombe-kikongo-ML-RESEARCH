@@ -126,6 +126,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             isAdmin: false,
             isPremium: false,
             subscriptionEnd: null,
+            hasLifetimeTranslator: false,
+            translatorUsesRemaining: null,
             loading: false,
           }));
         }
