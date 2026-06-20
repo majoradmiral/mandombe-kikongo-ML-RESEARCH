@@ -19,6 +19,7 @@
 - [Platform Vision](mem://project/vision) — Autonomous learning platform for Kikongo Lari and Mandombe
 - [Visual Aesthetic](mem://style/aesthetic) — Minimalist for lessons, vibrant for story panels
 - [Monetization](mem://business/monetization) — $9.99/mo Stripe sub, admin bypass logic
+- [Lifetime Unlock](mem://business/lifetime-unlock) — $19.99 one-time Translator+Dictionary, 11-use free quota
 - [Vocabulary Collection](mem://features/vocabulary) — Thematic modules based on Nzo Mikanda corpus
 - [Typography](mem://style/typography) — Mandombe webfont constraints, styling rules, no accents
 - [Learning System](mem://features/learning-system) — Progressive difficulty curve and exercise selection
