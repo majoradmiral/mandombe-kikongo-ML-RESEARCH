@@ -1,4 +1,7 @@
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { requireAuth, unauthorizedResponse } from "../_shared/auth.ts";
+
+const MAX_TTS_CHARS = 1000;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -280,6 +283,9 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const auth = await requireAuth(req);
+  if (!auth.ok) return unauthorizedResponse(auth, corsHeaders);
+
   try {
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
     if (!ELEVENLABS_API_KEY) {
@@ -288,10 +294,16 @@ Deno.serve(async (req) => {
 
     const { text, voiceId } = await req.json();
 
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return new Response(
         JSON.stringify({ error: "text is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (text.length > MAX_TTS_CHARS) {
+      return new Response(
+        JSON.stringify({ error: `text exceeds ${MAX_TTS_CHARS} characters` }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
