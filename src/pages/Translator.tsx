@@ -1,12 +1,14 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { SEO } from "@/components/SEO";
-import { ArrowRightLeft, Languages, Loader2, AlertCircle, Copy, Check, ImageIcon, Pencil } from "lucide-react";
+import { ArrowRightLeft, Languages, Loader2, AlertCircle, Copy, Check, ImageIcon, Pencil, Infinity as InfinityIcon } from "lucide-react";
 import html2canvas from "html2canvas";
 import { toast } from "sonner";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MandombeSpeaker from "@/components/MandombeSpeaker";
+import TranslatorPaywall from "@/components/TranslatorPaywall";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
