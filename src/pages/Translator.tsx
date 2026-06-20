@@ -131,6 +131,19 @@ const Translator = () => {
     }
   }, [sourceLang, targetLang, result]);
 
+  const ensureFreshSession = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    let s = data.session;
+    if (!s) return null;
+    const expiresAt = s.expires_at ?? 0;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (expiresAt - nowSec < 60) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      s = refreshed.session ?? s;
+    }
+    return s;
+  }, []);
+
   const saveCorrection = useCallback(async () => {
     if (!result) return;
     if (!isAdmin) {
@@ -138,49 +151,34 @@ const Translator = () => {
       return;
     }
 
-    let accessToken = session?.access_token;
-    if (!accessToken) {
-      const { data } = await supabase.auth.getSession();
-      accessToken = data.session?.access_token;
-    }
-
-    if (!accessToken) {
+    const fresh = await ensureFreshSession();
+    if (!fresh) {
       toast.error("Reconnectez-vous pour sauvegarder la correction.");
       return;
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-lari`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            text: inputText.trim(),
-            direction: `${sourceLang}-to-${targetLang}`,
-            correction: true,
-            translation: result.translation,
-            mandombe: result.mandombe,
-            ipa: result.ipa,
-            notes: result.notes,
-          }),
-        }
-      );
-      if (response.ok) {
-        await checkSubscription();
-        toast.success(t("translator.correctionSaved") || "Correction sauvegardée !");
-      } else {
-        const err = await response.json().catch(() => ({}));
-        toast.error(err.error || "Erreur lors de la sauvegarde");
+      const { error } = await supabase.functions.invoke("translate-lari", {
+        body: {
+          text: inputText.trim(),
+          direction: `${sourceLang}-to-${targetLang}`,
+          correction: true,
+          translation: result.translation,
+          mandombe: result.mandombe,
+          ipa: result.ipa,
+          notes: result.notes,
+        },
+      });
+      if (error) {
+        toast.error(error.message || "Erreur lors de la sauvegarde");
+        return;
       }
+      await checkSubscription();
+      toast.success(t("translator.correctionSaved") || "Correction sauvegardée !");
     } catch {
       toast.error("Erreur lors de la sauvegarde");
     }
-  }, [result, isAdmin, session, checkSubscription, inputText, sourceLang, targetLang, t]);
+  }, [result, isAdmin, ensureFreshSession, checkSubscription, inputText, sourceLang, targetLang, t]);
 
   const translate = useCallback(async () => {
     if (!inputText.trim()) return;
@@ -197,52 +195,41 @@ const Translator = () => {
     const direction = `${sourceLang}-to-${targetLang}`;
     const notesLang = sourceLang === "lari" ? targetLang : sourceLang;
 
-    let accessToken = session?.access_token;
-    if (!accessToken) {
-      const { data } = await supabase.auth.getSession();
-      accessToken = data.session?.access_token;
-    }
-    if (!accessToken) {
+    const fresh = await ensureFreshSession();
+    if (!fresh) {
       setIsLoading(false);
       navigate("/auth?next=/translator");
       return;
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-lari`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ text: inputText.trim(), direction, notesLang }),
+      const { data, error: invokeError } = await supabase.functions.invoke("translate-lari", {
+        body: { text: inputText.trim(), direction, notesLang },
+      });
+
+      if (invokeError) {
+        const status = (invokeError as { context?: { response?: Response } })?.context?.response?.status;
+        if (status === 402) {
+          setQuotaExceeded(true);
+          void checkSubscription();
+          return;
         }
-      );
-
-      if (response.status === 402) {
-        setQuotaExceeded(true);
-        void checkSubscription();
-        return;
+        if (status === 401) {
+          toast.error("Session expirée, reconnectez-vous.");
+          navigate("/auth?next=/translator");
+          return;
+        }
+        throw new Error(invokeError.message || "Erreur de traduction");
       }
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `Erreur ${response.status}`);
-      }
-
-      const data: TranslationResult = await response.json();
-      setResult(data);
-      // refresh remaining count
+      setResult(data as TranslationResult);
       void checkSubscription();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
       setIsLoading(false);
     }
-  }, [inputText, sourceLang, targetLang, user, session, navigate, checkSubscription]);
+  }, [inputText, sourceLang, targetLang, user, ensureFreshSession, navigate, checkSubscription]);
 
   // Translator is now public — admin still has correction privileges below.
 
