@@ -1,0 +1,1 @@
+CREATE POLICY "Admins can read all lifetime unlocks" ON public.lifetime_unlocks FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'::app_role));
