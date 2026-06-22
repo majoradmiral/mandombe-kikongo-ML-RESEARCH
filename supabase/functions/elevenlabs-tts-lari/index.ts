@@ -17,11 +17,14 @@ const DEFAULT_VOICE_ID = (Deno.env.get("LARI_VOICE_ID") || "").trim() || "Gz9w9R
 // ============================================================
 
 const PHONETIC_OVERRIDES: Record<string, string> = {
-  // moshi — "sh" = /ʃ/ comme "shoes" en anglais
-  "mosi": "moshi",
-  "Mosi": "Moshi",
-  "moshi": "moshi",
-  "Moshi": "Moshi",
+  // moshi — "sh" = /ʃ/ comme "shoes" en anglais / "chat" en français.
+  // ⚠️ NE PAS laisser le mot devenir "mochi" : ElevenLabs (v3 et multilingual)
+  // reconnaît "mochi" comme le mot japonais et le prononce /motʃi/.
+  // On force une graphie française unique ("mau-chi") qui garantit /moʃi/.
+  "mosi": "mau-chi",
+  "Mosi": "Mau-chi",
+  "moshi": "mau-chi",
+  "Moshi": "Mau-chi",
   // Zaba — premier /a/ long /zaːba/
   "zaba": "zââba",
   "Zaba": "Zââba",
