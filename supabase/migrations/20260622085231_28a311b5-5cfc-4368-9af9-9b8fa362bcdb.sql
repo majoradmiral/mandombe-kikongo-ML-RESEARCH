@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS "Authenticated can read corrections" ON public.translation_corrections;
+CREATE POLICY "Users can read own corrections" ON public.translation_corrections FOR SELECT TO authenticated USING (created_by = auth.uid());
