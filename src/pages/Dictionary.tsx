@@ -364,32 +364,8 @@ const Dictionary = () => {
             )}
           </div>
 
-          {/* Quota / paywall banner */}
-          {quotaExceeded && !hasUnlimited ? (
-            <div className="max-w-2xl mx-auto mb-8">
-              <TranslatorPaywall reason="quota" variant="inline" />
-            </div>
-          ) : !hasUnlimited && user && translatorUsesRemaining !== null ? (
-            <div className="max-w-xl mx-auto mb-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <span>
-                {translatorUsesRemaining} / {translatorUsesLimit} recherches gratuites restantes (partagées avec le traducteur)
-              </span>
-              <button
-                onClick={async () => {
-                  try {
-                    const { data, error } = await supabase.functions.invoke("create-lifetime-checkout");
-                    if (error) throw error;
-                    if (data?.url) window.open(data.url, "_blank");
-                  } catch {
-                    toast.error("Erreur");
-                  }
-                }}
-                className="text-gold hover:underline font-medium inline-flex items-center gap-1"
-              >
-                <InfinityIcon className="w-3 h-3" /> 19,99 $
-              </button>
-            </div>
-          ) : null}
+          {/* Paywall temporarily suspended — no quota banner shown */}
+
 
           {/* Search */}
           <div className="max-w-xl mx-auto mb-8 relative">
