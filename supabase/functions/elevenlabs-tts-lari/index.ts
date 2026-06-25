@@ -286,8 +286,16 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const auth = await requireAuth(req);
-  if (!auth.ok) return unauthorizedResponse(auth, corsHeaders);
+  // Cross-project service token bypass (for pre-generating MP3 caches from other Lovable projects).
+  // The token is a server-side secret rotated/revoked from the dashboard — invalidate by deleting/rotating TTS_SERVICE_TOKEN.
+  const serviceToken = req.headers.get("x-service-token") || req.headers.get("X-Service-Token");
+  const expectedServiceToken = Deno.env.get("TTS_SERVICE_TOKEN");
+  const isServiceCall = !!serviceToken && !!expectedServiceToken && serviceToken === expectedServiceToken;
+
+  if (!isServiceCall) {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return unauthorizedResponse(auth, corsHeaders);
+  }
 
   try {
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
