@@ -1,0 +1,161 @@
+// tts-lari-cached
+// Cache permanent des MP3 Lari dans le bucket public `public-assets/tts-cache/lari/`.
+// 1. Hash stable du couple (texte normalisé, voiceId) -> nom de fichier.
+// 2. Si l'objet existe déjà -> on renvoie l'URL publique (0 crédit ElevenLabs).
+// 3. Sinon, on appelle `elevenlabs-tts-lari` (via service token), on uploade le MP3,
+//    on renvoie l'URL publique. Une seule génération à vie par texte+voix.
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { decode as base64Decode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { requireAuth, unauthorizedResponse } from "../_shared/auth.ts";
+
+const BUCKET = "public-assets";
+const PREFIX = "tts-cache/lari";
+const MAX_CHARS = 1000;
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-service-token",
+};
+
+function normalize(text: string): string {
+  return text
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function slugify(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Allow either signed-in user OR cross-project service token
+  const serviceToken = req.headers.get("x-service-token");
+  const expectedServiceToken = Deno.env.get("TTS_SERVICE_TOKEN");
+  const isServiceCall = !!serviceToken && !!expectedServiceToken && serviceToken === expectedServiceToken;
+
+  if (!isServiceCall) {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return unauthorizedResponse(auth, corsHeaders);
+  }
+
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SERVICE_TOKEN = Deno.env.get("TTS_SERVICE_TOKEN")!;
+
+    const body = await req.json().catch(() => ({}));
+    const text: string = body?.text ?? "";
+    const voiceId: string | undefined = body?.voiceId;
+
+    if (!text || typeof text !== "string") {
+      return new Response(JSON.stringify({ error: "text is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (text.length > MAX_CHARS) {
+      return new Response(JSON.stringify({ error: `text exceeds ${MAX_CHARS} chars` }), {
+        status: 413,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const norm = normalize(text);
+    const voiceKey = (voiceId || "default").trim();
+    const hash = (await sha256Hex(`${voiceKey}::${norm}`)).slice(0, 16);
+    const slug = slugify(norm) || "audio";
+    const objectPath = `${PREFIX}/${slug}-${hash}.mp3`;
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${objectPath}`;
+
+    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+    // 1. Cache HIT? -> HEAD via public URL (fast, no listing perms needed)
+    const head = await fetch(publicUrl, { method: "HEAD" });
+    if (head.ok) {
+      return new Response(JSON.stringify({ url: publicUrl, cached: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 2. Cache MISS -> generate via elevenlabs-tts-lari (service-token bypass)
+    const ttsRes = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-service-token": SERVICE_TOKEN,
+      },
+      body: JSON.stringify({ text, voiceId }),
+    });
+
+    if (!ttsRes.ok) {
+      const detail = await ttsRes.text();
+      console.error("Upstream TTS failed:", ttsRes.status, detail);
+      return new Response(
+        JSON.stringify({ error: "TTS generation failed", status: ttsRes.status, details: detail }),
+        { status: ttsRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { audioContent } = await ttsRes.json();
+    if (!audioContent) {
+      return new Response(JSON.stringify({ error: "Upstream returned no audio" }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const audioBytes = base64Decode(audioContent);
+
+    // 3. Upload to public bucket
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(objectPath, audioBytes, {
+        contentType: "audio/mpeg",
+        cacheControl: "31536000, immutable",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error("Upload error:", uploadError);
+      // Even if upload fails, return base64 so playback still works.
+      return new Response(
+        JSON.stringify({
+          url: null,
+          cached: false,
+          audioContent,
+          uploadError: uploadError.message,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`TTS cached: ${objectPath}`);
+    return new Response(JSON.stringify({ url: publicUrl, cached: false }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("tts-lari-cached error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

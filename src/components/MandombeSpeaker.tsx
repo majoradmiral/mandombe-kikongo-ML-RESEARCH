@@ -45,7 +45,7 @@ const MandombeSpeaker = ({ lariText, className = "" }: MandombeSpeakerProps) => 
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tts-lari-cached`,
         {
           method: "POST",
           headers: {
@@ -62,7 +62,15 @@ const MandombeSpeaker = ({ lariText, className = "" }: MandombeSpeakerProps) => 
       }
 
       const data = await response.json();
-      const audioUrl = `data:audio/mpeg;base64,${data.audioContent}`;
+      // Prefer the permanent public URL (cache hit or freshly cached);
+      // fall back to inline base64 if upload failed for any reason.
+      const audioUrl = data.url
+        ? data.url
+        : data.audioContent
+        ? `data:audio/mpeg;base64,${data.audioContent}`
+        : null;
+
+      if (!audioUrl) throw new Error("No audio returned");
 
       audioCache.set(cacheKey, audioUrl);
 
