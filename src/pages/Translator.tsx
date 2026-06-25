@@ -60,7 +60,8 @@ const Translator = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const hasUnlimited = isAdmin || isPremium || hasLifetimeTranslator;
+  // Paywall temporarily suspended — free unlimited access for everyone.
+  const hasUnlimited = true;
 
   // Handle Stripe return: verify lifetime purchase
   useEffect(() => {
