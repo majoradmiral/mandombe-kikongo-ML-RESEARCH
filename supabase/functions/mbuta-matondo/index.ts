@@ -738,10 +738,34 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
         ).map((v) => ({ ...v, lesson: l.id }))
       );
 
+      const dictHits = DICT.filter(
+        (e) =>
+          e.lari.toLowerCase().includes(lower) ||
+          e.fr.toLowerCase().includes(lower)
+      ).slice(0, 15);
+
+      // Auto-fallback : si rien trouvé localement, on interroge le traducteur officiel.
+      let translator_fallback: unknown = null;
+      const totalLocal =
+        (corrections?.length ?? 0) + corpusHits.length + dictHits.length;
+      if (totalLocal === 0) {
+        const lang = (args.lang as string) || "fr";
+        const target = lang === "lari" ? "fr" : "lari";
+        const { data: t } = await supabase.functions.invoke("translate-lari", {
+          body: { text: query, sourceLang: lang, targetLang: target },
+        });
+        translator_fallback = t ?? null;
+      }
+
       return {
         admin_corrections: corrections ?? [],
         corpus_entries: corpusHits,
-        found: (corrections?.length ?? 0) + corpusHits.length > 0,
+        dictionary_entries: dictHits,
+        translator_fallback,
+        found:
+          totalLocal > 0 ||
+          (translator_fallback != null &&
+            typeof translator_fallback === "object"),
       };
     }
 
