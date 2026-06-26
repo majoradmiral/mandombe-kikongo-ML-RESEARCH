@@ -47,6 +47,10 @@ const PHONETIC_OVERRIDES: Record<string, string> = {
   "matanga": "matanga",
   "malaki": "malakhi",
   "jimbakane": "jimbakané",
+  // Mazuji — finale /ʒi/ (jamais /dzi/). "zou" force /zu/ français,
+  // tiret avant "ji" déclenche la règle /ʒ/ ("Julien"), comme bujitu/mbaji.
+  "mazuji": "ma-zou-ji",
+  "Mazuji": "Ma-zou-ji",
   "mbakisa": "mbakissa",
   "lusalusu": "loussaloussou",
   "lubakusu": "loubakoussou",
