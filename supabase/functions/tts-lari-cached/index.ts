@@ -125,33 +125,57 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Cache MISS -> generate via elevenlabs-tts-lari (service-token bypass)
-    const ttsRes = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-service-token": SERVICE_TOKEN,
-      },
-      body: JSON.stringify({ text, voiceId }),
-    });
+    // 2. Cache MISS -> try ElevenLabs (unless quota recently exhausted), else Lovable AI fallback
+    let audioBytes: Uint8Array | null = null;
+    let usedFallback = false;
+    const quotaActive = Date.now() < elevenQuotaExhaustedUntil;
 
-    if (!ttsRes.ok) {
-      const detail = await ttsRes.text();
-      console.error("Upstream TTS failed:", ttsRes.status, detail);
+    if (!quotaActive) {
+      const ttsRes = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-service-token": SERVICE_TOKEN,
+        },
+        body: JSON.stringify({ text, voiceId }),
+      });
+
+      if (ttsRes.ok) {
+        const { audioContent } = await ttsRes.json();
+        if (audioContent) audioBytes = base64Decode(audioContent);
+      } else {
+        const detail = await ttsRes.text().catch(() => "");
+        const isQuota = ttsRes.status === 402 || /quota_exceeded/i.test(detail);
+        if (isQuota) {
+          console.warn("ElevenLabs quota exhausted — switching to Lovable AI fallback for 30 min");
+          elevenQuotaExhaustedUntil = Date.now() + QUOTA_TTL_MS;
+        } else {
+          console.error("Upstream TTS failed:", ttsRes.status, detail);
+        }
+      }
+    } else {
+      console.log("Skipping ElevenLabs (quota cooldown active)");
+    }
+
+    if (!audioBytes) {
+      const fb = await lovableAiFallback(text);
+      if (fb) {
+        audioBytes = fb;
+        usedFallback = true;
+      }
+    }
+
+    if (!audioBytes) {
       return new Response(
-        JSON.stringify({ error: "TTS generation failed", status: ttsRes.status, details: detail }),
-        { status: ttsRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "tts_unavailable",
+          message: "ElevenLabs quota exceeded and no fallback available.",
+          quotaExceeded: true,
+        }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { audioContent } = await ttsRes.json();
-    if (!audioContent) {
-      return new Response(JSON.stringify({ error: "Upstream returned no audio" }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const audioBytes = base64Decode(audioContent);
 
     // 3. Upload to public bucket
     const { error: uploadError } = await supabase.storage
