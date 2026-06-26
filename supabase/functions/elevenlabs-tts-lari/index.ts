@@ -364,6 +364,16 @@ Deno.serve(async (req) => {
       const errorData = await response.text();
       console.error("ElevenLabs TTS error:", errorData);
 
+      // Detect quota_exceeded (ElevenLabs returns 401 with status "quota_exceeded")
+      const isQuotaExceeded =
+        /quota_exceeded|quota exceeded|insufficient.*credit|out of credits/i.test(errorData);
+      if (isQuotaExceeded) {
+        return new Response(
+          JSON.stringify({ error: "quota_exceeded", provider: "elevenlabs", details: errorData }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       if (response.status === 422 || response.status === 403) {
         console.log("Falling back to eleven_multilingual_v2...");
         const fallbackResponse = await fetch(
@@ -391,9 +401,10 @@ Deno.serve(async (req) => {
         if (!fallbackResponse.ok) {
           const fallbackError = await fallbackResponse.text();
           console.error("Fallback TTS error:", fallbackError);
+          const fbQuota = /quota_exceeded|quota exceeded|insufficient.*credit|out of credits/i.test(fallbackError);
           return new Response(
-            JSON.stringify({ error: "TTS generation failed", details: fallbackError }),
-            { status: fallbackResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: fbQuota ? "quota_exceeded" : "TTS generation failed", details: fallbackError }),
+            { status: fbQuota ? 402 : fallbackResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
