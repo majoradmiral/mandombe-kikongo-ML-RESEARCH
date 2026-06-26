@@ -42,7 +42,7 @@ type Block = { lari: string; fr: string };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mbuta-matondo`;
 const TTS_LARI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`;
-const STT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-stt`;
+const STT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stt-lari`;
 
 // ---------- Parsing helpers ----------
 
