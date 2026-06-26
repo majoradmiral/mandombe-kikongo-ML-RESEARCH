@@ -43,6 +43,36 @@ function slugify(text: string): string {
     .slice(0, 40);
 }
 
+// Module-level quota memory: once ElevenLabs returns quota_exceeded, skip it
+// entirely for QUOTA_TTL_MS to avoid burning further requests/credits.
+const QUOTA_TTL_MS = 30 * 60 * 1000; // 30 min
+let elevenQuotaExhaustedUntil = 0;
+
+async function lovableAiFallback(text: string): Promise<Uint8Array | null> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return null;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/speech", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini-tts",
+        input: text,
+        voice: "alloy",
+        response_format: "mp3",
+      }),
+    });
+    if (!res.ok) {
+      console.error("Lovable AI fallback failed:", res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    console.error("Lovable AI fallback error:", e);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
