@@ -4,6 +4,10 @@ import { LESSONS_CORPUS, filterLessons, getExercisesByLesson } from "../_shared/
 import { MBUTA_CORPUS_V2 } from "../_shared/mbuta-corpus-v2.ts";
 import { MBUTA_LECONS } from "../_shared/mbuta-lecons.ts";
 import { mbutaOfflineReply } from "../_shared/offline-fallback.ts";
+import DICTIONARY from "../_shared/dictionary.json" with { type: "json" };
+
+type DictEntry = { lari: string; fr: string; mandombe?: string };
+const DICT = DICTIONARY as DictEntry[];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
