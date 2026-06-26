@@ -43,6 +43,36 @@ function slugify(text: string): string {
     .slice(0, 40);
 }
 
+// Module-level quota memory: once ElevenLabs returns quota_exceeded, skip it
+// entirely for QUOTA_TTL_MS to avoid burning further requests/credits.
+const QUOTA_TTL_MS = 30 * 60 * 1000; // 30 min
+let elevenQuotaExhaustedUntil = 0;
+
+async function lovableAiFallback(text: string): Promise<Uint8Array | null> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return null;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/speech", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini-tts",
+        input: text,
+        voice: "alloy",
+        response_format: "mp3",
+      }),
+    });
+    if (!res.ok) {
+      console.error("Lovable AI fallback failed:", res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    console.error("Lovable AI fallback error:", e);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -95,33 +125,57 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Cache MISS -> generate via elevenlabs-tts-lari (service-token bypass)
-    const ttsRes = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-service-token": SERVICE_TOKEN,
-      },
-      body: JSON.stringify({ text, voiceId }),
-    });
+    // 2. Cache MISS -> try ElevenLabs (unless quota recently exhausted), else Lovable AI fallback
+    let audioBytes: Uint8Array | null = null;
+    let usedFallback = false;
+    const quotaActive = Date.now() < elevenQuotaExhaustedUntil;
 
-    if (!ttsRes.ok) {
-      const detail = await ttsRes.text();
-      console.error("Upstream TTS failed:", ttsRes.status, detail);
+    if (!quotaActive) {
+      const ttsRes = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts-lari`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-service-token": SERVICE_TOKEN,
+        },
+        body: JSON.stringify({ text, voiceId }),
+      });
+
+      if (ttsRes.ok) {
+        const { audioContent } = await ttsRes.json();
+        if (audioContent) audioBytes = base64Decode(audioContent);
+      } else {
+        const detail = await ttsRes.text().catch(() => "");
+        const isQuota = ttsRes.status === 402 || /quota_exceeded/i.test(detail);
+        if (isQuota) {
+          console.warn("ElevenLabs quota exhausted — switching to Lovable AI fallback for 30 min");
+          elevenQuotaExhaustedUntil = Date.now() + QUOTA_TTL_MS;
+        } else {
+          console.error("Upstream TTS failed:", ttsRes.status, detail);
+        }
+      }
+    } else {
+      console.log("Skipping ElevenLabs (quota cooldown active)");
+    }
+
+    if (!audioBytes) {
+      const fb = await lovableAiFallback(text);
+      if (fb) {
+        audioBytes = fb;
+        usedFallback = true;
+      }
+    }
+
+    if (!audioBytes) {
       return new Response(
-        JSON.stringify({ error: "TTS generation failed", status: ttsRes.status, details: detail }),
-        { status: ttsRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "tts_unavailable",
+          message: "ElevenLabs quota exceeded and no fallback available.",
+          quotaExceeded: true,
+        }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { audioContent } = await ttsRes.json();
-    if (!audioContent) {
-      return new Response(JSON.stringify({ error: "Upstream returned no audio" }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const audioBytes = base64Decode(audioContent);
 
     // 3. Upload to public bucket
     const { error: uploadError } = await supabase.storage
@@ -135,21 +189,24 @@ Deno.serve(async (req) => {
     if (uploadError) {
       console.error("Upload error:", uploadError);
       // Even if upload fails, return base64 so playback still works.
+      const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
       return new Response(
         JSON.stringify({
           url: null,
           cached: false,
-          audioContent,
+          audioContent: base64Encode(audioBytes),
+          provider: usedFallback ? "lovable-ai" : "elevenlabs",
           uploadError: uploadError.message,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`TTS cached: ${objectPath}`);
-    return new Response(JSON.stringify({ url: publicUrl, cached: false }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.log(`TTS cached (${usedFallback ? "lovable-ai" : "elevenlabs"}): ${objectPath}`);
+    return new Response(
+      JSON.stringify({ url: publicUrl, cached: false, provider: usedFallback ? "lovable-ai" : "elevenlabs" }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (err) {
     console.error("tts-lari-cached error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
