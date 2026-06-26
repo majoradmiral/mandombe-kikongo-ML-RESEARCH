@@ -11,6 +11,7 @@ import Footer from "@/components/Footer";
 import LingalaMandombe from "@/components/LingalaMandombe";
 import TranslationSpeaker from "@/components/TranslationSpeaker";
 import MandombeSpeaker from "@/components/MandombeSpeaker";
+import PronunciationCheck from "@/components/PronunciationCheck";
 import TranslatorPaywall from "@/components/TranslatorPaywall";
 import { lessons, VocabItem } from "@/data/lessons";
 import { supabase } from "@/integrations/supabase/client";
@@ -449,6 +450,12 @@ const Dictionary = () => {
                       {entry.note && (
                         <p className="mt-1 text-sm text-muted-foreground italic">{entry.note}</p>
                       )}
+                      <PronunciationCheck
+                        expected={entry.lari}
+                        mandombe={entry.mandombe}
+                        meaning={entry.french}
+                        className="mt-2"
+                      />
                     </div>
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-accent/20 text-accent-foreground whitespace-nowrap">
                       {getCategory(entry)}
