@@ -50,6 +50,7 @@ const PronunciationCheck = ({ expected, mandombe, meaning, className, compact }:
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [offline, setOffline] = useState<boolean>(() => !navigator.onLine && isWebSpeechSupported());
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -58,6 +59,18 @@ const PronunciationCheck = ({ expected, mandombe, meaning, className, compact }:
   const dictHit = (!mandombe || !meaning) ? lookupLari(expected) : null;
   const exampleMandombe = mandombe ?? dictHit?.mandombe ?? expected;
   const exampleMeaning = meaning ?? dictHit?.fr ?? "";
+
+  const buildLocalResult = useCallback((heard: string): ApiResult => {
+    const d = diagnoseLocal(expected, heard);
+    return {
+      text: heard,
+      score: d.score,
+      verdict: d.verdict,
+      syllables: d.cells,
+      expectedSyllables: d.expectedSyllables,
+      issues: d.issues,
+    };
+  }, [expected]);
 
   const submit = useCallback(async (blob: Blob) => {
     setBusy(true);
@@ -81,7 +94,28 @@ const PronunciationCheck = ({ expected, mandombe, meaning, className, compact }:
     }
   }, [expected]);
 
+  const startOffline = useCallback(async () => {
+    setError(null);
+    setResult(null);
+    if (!isWebSpeechSupported()) {
+      setError("Mode hors-ligne indisponible (utilise Chrome ou Edge).");
+      return;
+    }
+    setRecording(true);
+    setBusy(true);
+    try {
+      const heard = await recognizeOnce("fr-FR");
+      setResult(buildLocalResult(heard));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reconnaissance vocale échouée.");
+    } finally {
+      setRecording(false);
+      setBusy(false);
+    }
+  }, [buildLocalResult]);
+
   const start = useCallback(async () => {
+    if (offline) return startOffline();
     setError(null);
     setResult(null);
     try {
@@ -101,7 +135,8 @@ const PronunciationCheck = ({ expected, mandombe, meaning, className, compact }:
     } catch {
       setError("Accès au microphone refusé.");
     }
-  }, [submit]);
+  }, [submit, offline, startOffline]);
+
 
   const stop = useCallback(() => {
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
