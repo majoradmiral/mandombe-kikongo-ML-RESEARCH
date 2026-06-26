@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import PronunciationCheck from "@/components/PronunciationCheck";
 
 import lecon00 from "../../supabase/functions/_shared/mbuta-lecon-00.json";
 import lecon03 from "../../supabase/functions/_shared/mbuta-lecon-03.json";
@@ -259,6 +260,11 @@ function MandombeBubble({ block, isPlaying, audioDurationMs, onAdminCorrect, isA
         >
           {block.fr}
         </div>
+      )}
+
+      {/* Pronunciation evaluator — appears once typewriter is finished */}
+      {showLari && (
+        <PronunciationCheck expected={block.lari} className="pt-1" />
       )}
     </div>
   );
